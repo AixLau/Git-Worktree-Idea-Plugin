@@ -81,7 +81,6 @@ class WorktreePanel(private val project: Project) : JPanel(BorderLayout()), Data
     private fun setupToolbar() {
         val actionGroup = DefaultActionGroup().apply {
             addActionIfExists("GitWorktree.Add")
-            addActionIfExists("GitWorktree.Remove")
             addSeparator()
             add(object : AnAction(
                 GitWorktreeBundle.message("action.refresh"),
