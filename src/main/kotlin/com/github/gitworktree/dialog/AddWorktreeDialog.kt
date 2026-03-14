@@ -1,6 +1,9 @@
 package com.github.gitworktree.dialog
 
 import com.github.gitworktree.GitWorktreeBundle
+import com.github.gitworktree.git.GitWorktreeManager
+import com.github.gitworktree.git.RemoteBranchResolutionCheck
+import com.github.gitworktree.git.RequiredNewBranchReason
 import com.github.gitworktree.git.suggestLocalBranchName
 import com.github.gitworktree.settings.GitWorktreeSettings
 import com.intellij.openapi.application.ApplicationManager
@@ -163,6 +166,9 @@ class AddWorktreeDialog(
     private var locationSuggestionReady = false
     private var lastSuggestedLocation: String? = null
     private var lastSuggestedNewBranchName: String? = null
+    private var remoteBranchCheckRequestId = 0
+    private var remoteBranchResolutionCheck = RemoteBranchResolutionCheck()
+    private var remoteBranchCheckInProgress = false
 
     private val locationField = TextFieldWithBrowseButton().apply {
         val descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor().apply {
@@ -205,6 +211,9 @@ class AddWorktreeDialog(
         emptyText.text = GitWorktreeBundle.message("dialog.add.branch.placeholder")
         isEnabled = false
     }
+    private val remoteBranchHintLabel = JBLabel().apply {
+        isVisible = false
+    }
 
     // Advanced
     private val lockCheckBox = JBCheckBox(GitWorktreeBundle.message("dialog.add.lock"))
@@ -235,6 +244,7 @@ class AddWorktreeDialog(
         applyPresets()
         init()
         refreshSuggestedLocation(force = true)
+        refreshRemoteBranchRequirement()
     }
 
     private fun suggestDefaultLocation(): String {
@@ -337,6 +347,7 @@ class AddWorktreeDialog(
                     }
                 }
                 maybeSuggestNewBranchFromRemote(force = false)
+                refreshRemoteBranchRequirement()
                 refreshSuggestedLocation()
             }
         }
@@ -344,6 +355,7 @@ class AddWorktreeDialog(
         branchCombo.addItemListener { e ->
             if (e.stateChange == ItemEvent.SELECTED) {
                 maybeSuggestNewBranchFromRemote(force = true)
+                refreshRemoteBranchRequirement()
                 refreshSuggestedLocation()
             }
         }
@@ -353,6 +365,7 @@ class AddWorktreeDialog(
             if (createNewBranchCheckBox.isSelected) {
                 maybeSuggestNewBranchFromRemote(force = false)
             }
+            updateRemoteBranchHint(remoteBranchResolutionCheck)
             refreshSuggestedLocation()
         }
 
@@ -404,6 +417,85 @@ class AddWorktreeDialog(
         lastSuggestedNewBranchName = suggestedBranchName
     }
 
+    private fun refreshRemoteBranchRequirement() {
+        val sourceType = sourceCombo.selectedItem as? WorktreeSourceType
+        val selectedBranch = branchCombo.selectedItem as? String
+        val branchKnownToRepository = selectedBranch != null &&
+            (selectedBranch in remoteBranchNames || selectedBranch in localBranchNames)
+        if (sourceType != WorktreeSourceType.BRANCH || selectedBranch.isNullOrBlank() || !branchKnownToRepository) {
+            remoteBranchCheckRequestId += 1
+            remoteBranchResolutionCheck = RemoteBranchResolutionCheck()
+            remoteBranchCheckInProgress = false
+            updateRemoteBranchHint(remoteBranchResolutionCheck)
+            return
+        }
+
+        val requestId = ++remoteBranchCheckRequestId
+        remoteBranchCheckInProgress = true
+        ProgressManager.getInstance().run(
+            object : Task.Backgroundable(project, GitWorktreeBundle.message("dialog.add.checking.remote.branch"), false) {
+                override fun run(indicator: ProgressIndicator) {
+                    val resolutionCheck = GitWorktreeManager.getInstance()
+                        .inspectRemoteBranchResolution(project, repository, selectedBranch)
+                    ApplicationManager.getApplication().invokeLater {
+                        if (!isDisposed && requestId == remoteBranchCheckRequestId) {
+                            remoteBranchCheckInProgress = false
+                            remoteBranchResolutionCheck = resolutionCheck
+                            applyRemoteBranchResolutionCheck(resolutionCheck)
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    private fun applyRemoteBranchResolutionCheck(resolutionCheck: RemoteBranchResolutionCheck) {
+        val suggestedBranchName = resolutionCheck.resolution?.newBranch
+        if (resolutionCheck.resolution?.requiredNewBranchReason != null && !suggestedBranchName.isNullOrBlank()) {
+            if (!createNewBranchCheckBox.isSelected) {
+                createNewBranchCheckBox.isSelected = true
+            }
+            val currentBranchName = newBranchNameField.text.trim()
+            if (currentBranchName.isEmpty() || currentBranchName == lastSuggestedNewBranchName) {
+                newBranchNameField.text = suggestedBranchName
+            }
+            lastSuggestedNewBranchName = suggestedBranchName
+        }
+        updateRemoteBranchHint(resolutionCheck)
+        refreshSuggestedLocation()
+    }
+
+    private fun updateRemoteBranchHint(resolutionCheck: RemoteBranchResolutionCheck) {
+        val resolution = resolutionCheck.resolution
+        val selectedBranch = branchCombo.selectedItem as? String
+        val hintText = when {
+            !resolutionCheck.errorMessage.isNullOrBlank() ->
+                GitWorktreeBundle.message("dialog.add.remote.branch.check.failed", resolutionCheck.errorMessage)
+            resolution?.requiredNewBranchReason == RequiredNewBranchReason.MISSING_LOCAL_BRANCH ->
+                GitWorktreeBundle.message(
+                    "dialog.add.remote.branch.missing.local",
+                    selectedBranch.orEmpty(),
+                    resolution.newBranch.orEmpty(),
+                )
+            resolution?.requiredNewBranchReason == RequiredNewBranchReason.LOCAL_BRANCH_OCCUPIED ->
+                GitWorktreeBundle.message(
+                    "dialog.add.remote.branch.occupied",
+                    resolution.source.substringAfter("/", resolution.source),
+                    resolution.newBranch.orEmpty(),
+                )
+            resolution?.requiredNewBranchReason == RequiredNewBranchReason.LOCAL_BRANCH_CANNOT_FAST_FORWARD ->
+                GitWorktreeBundle.message(
+                    "dialog.add.remote.branch.cannot.fast.forward",
+                    selectedBranch?.substringAfter("/", selectedBranch).orEmpty(),
+                    selectedBranch.orEmpty(),
+                    resolution.newBranch.orEmpty(),
+                )
+            else -> null
+        }
+        remoteBranchHintLabel.text = hintText.orEmpty()
+        remoteBranchHintLabel.isVisible = !hintText.isNullOrBlank()
+    }
+
     private fun refreshSuggestedLocation(force: Boolean = false) {
         val suggestedLocation = suggestDefaultLocation()
         val currentLocation = locationField.text.trim()
@@ -450,6 +542,7 @@ class AddWorktreeDialog(
             .addLabeledComponent(JBLabel(GitWorktreeBundle.message("dialog.add.source")), sourceCombo)
             .addLabeledComponent(JBLabel(GitWorktreeBundle.message("dialog.add.source.value")), sourceValuePanel)
             .addComponent(newBranchPanel)
+            .addComponent(remoteBranchHintLabel)
             .addComponent(advancedSection)
             .addComponent(afterCreationSection)
             .addComponentFillVertically(JPanel(), 0)
@@ -471,6 +564,18 @@ class AddWorktreeDialog(
             WorktreeSourceType.BRANCH -> {
                 if (branchCombo.selectedItem == null) {
                     return ValidationInfo(GitWorktreeBundle.message("dialog.add.validation.branch.required"), branchCombo)
+                }
+                if (remoteBranchCheckInProgress) {
+                    return ValidationInfo(
+                        GitWorktreeBundle.message("dialog.add.validation.branch.checking"),
+                        branchCombo,
+                    )
+                }
+                if (remoteBranchResolutionCheck.resolution?.requiredNewBranchReason != null && !createNewBranchCheckBox.isSelected) {
+                    return ValidationInfo(
+                        GitWorktreeBundle.message("dialog.add.validation.remote.branch.requires.new.branch"),
+                        createNewBranchCheckBox,
+                    )
                 }
             }
             WorktreeSourceType.COMMIT -> {

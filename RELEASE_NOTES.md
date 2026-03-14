@@ -1,27 +1,23 @@
-# Git Worktree 1.0.0
+# Git Worktree 1.0.1
 
-## Highlights
+## 本次更新
 
-- Upgraded the plugin to IntelliJ IDEA `2025.3` / build `253.*`
-- Moved the project to Java `21`
-- Fixed several EDT and background-thread issues around Git operations
-- Improved multi-repository behavior in Git branches, VCS Log, quick switch, and compare flows
-- Added settings-driven default path handling and post-create defaults
-- Updated the default worktree path to a sibling directory using `{repo}-{branch}`
-- Normalized generated paths so they render as real sibling paths instead of `../...`
-- Improved remote branch handling to avoid detached HEAD
+- 优化从远程分支创建 worktree 时的交互，避免后台静默派生新分支
+- 当必须新建分支时，自动勾选“创建新分支”并填入建议名称
+- 在对话框中直接提示必须新建分支的原因，包括本地分支缺失、已被其他 worktree 占用、或不能安全 fast-forward
+- 如果用户手动取消“创建新分支”，会在校验阶段阻止继续创建，避免出现 detached HEAD
+- 补充对应测试，并统一中文发布文案
 
-## Remote Branch Worktree Behavior
+## 远程分支创建规则
 
-When creating a worktree from a remote branch:
+当你从远程分支，例如 `origin/main`，创建 worktree 时，插件行为如下：
 
-1. The plugin fetches the remote first.
-2. If a same-name local branch does not exist, it creates one from the remote branch.
-3. If a same-name local branch exists and is not occupied by another worktree, it fast-forwards that local branch and reuses it.
-4. If the local branch is already occupied by another worktree, or cannot be safely fast-forwarded, the plugin creates a derived local branch such as `main-worktree`.
+1. 先执行 `fetch`，刷新远程跟踪分支。
+2. 如果本地不存在同名分支，自动勾选“创建新分支”，并给出建议分支名。
+3. 如果本地已存在同名分支，且没有被其他 worktree 占用，则先 fast-forward 到远程最新提交，再复用该本地分支创建 worktree。
+4. 如果该本地分支已被其他 worktree 占用，或者不能安全 fast-forward，则自动勾选“创建新分支”，并提示原因与建议名称。
+5. 如果这种情况下取消“创建新分支”，插件会阻止继续创建。
 
-## Packaging
+## 打包产物
 
-Expected plugin artifact:
-
-- `build/distributions/git-worktree-intellij-1.0.0.zip`
+- `build/distributions/git-worktree-intellij-1.0.1.zip`

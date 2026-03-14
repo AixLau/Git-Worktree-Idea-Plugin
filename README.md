@@ -31,7 +31,7 @@
 
 当前本地产物：
 
-- `build/distributions/git-worktree-intellij-1.0.0.zip`
+- `build/distributions/git-worktree-intellij-1.0.1.zip`
 
 ## 入口位置
 
@@ -97,9 +97,10 @@
 行为如下：
 
 1. 先执行 `fetch`，刷新远程跟踪分支。
-2. 如果本地不存在同名分支，则先基于远程分支创建本地分支，再创建 worktree。
+2. 如果本地不存在同名分支，插件会自动勾选“创建新分支”，并填入建议名称。
 3. 如果本地已存在同名分支，且没有被其他 worktree 占用，则先 fast-forward 到远程最新提交，再复用该本地分支创建 worktree。
-4. 如果该本地分支已经被其他 worktree 占用，或者不能安全 fast-forward，则自动派生一个新本地分支，例如 `main-worktree`，再创建 worktree。
+4. 如果该本地分支已经被其他 worktree 占用，或者不能安全 fast-forward，插件会自动勾选“创建新分支”、给出建议分支名，并在对话框中提示原因。
+5. 如果这种情况下你手动取消“创建新分支”，插件会阻止继续创建，避免再次落到 detached HEAD。
 
 这样可以避免直接执行：
 

@@ -14,6 +14,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import git4idea.GitBranch
+import git4idea.GitLocalBranch
 import git4idea.actions.branch.GitBranchActionsDataKeys
 import git4idea.actions.branch.GitSingleBranchAction
 import git4idea.repo.GitRepository
@@ -27,7 +28,7 @@ class AddWorktreeFromBranchAction : GitSingleBranchAction() {
         reference: GitBranch,
     ) {
         val repo = resolveRepository(e, repositories) ?: return
-        val branchName = reference.name
+        val branchName = resolveBranchName(reference, repo)
 
         val dialog = AddWorktreeDialog(
             project = project,
@@ -73,6 +74,37 @@ class AddWorktreeFromBranchAction : GitSingleBranchAction() {
     private fun resolveRepository(e: AnActionEvent, repositories: List<GitRepository>): GitRepository? {
         return e.getData(GitBranchActionsDataKeys.SELECTED_REPOSITORY)
             ?: repositories.singleOrNull()
+    }
+
+    private fun resolveBranchName(reference: GitBranch, repository: GitRepository): String {
+        if (reference is GitLocalBranch) {
+            return reference.name
+        }
+
+        val fullName = runCatching {
+            reference.javaClass.getMethod("getFullName").invoke(reference) as? String
+        }.getOrNull()
+            ?: runCatching {
+                reference.javaClass.getMethod("getNameForRemoteOperations").invoke(reference) as? String
+            }.getOrNull()
+
+        fullName
+            ?.removePrefix("refs/remotes/")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+
+        val branchName = reference.name
+        val remoteBranches = repository.branches.remoteBranches.map { it.name }
+        if (branchName in remoteBranches) {
+            return branchName
+        }
+
+        val leafMatches = remoteBranches.filter { it.substringAfter("/", it) == branchName }
+        if (leafMatches.size == 1) {
+            return leafMatches.first()
+        }
+
+        return branchName
     }
 
     private fun notify(project: Project, content: String, type: NotificationType = NotificationType.INFORMATION) {

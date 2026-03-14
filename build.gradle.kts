@@ -15,13 +15,7 @@ val javaVersion = providers.gradleProperty("javaVersion").get().toInt()
 val platformVersion = providers.gradleProperty("platformVersion").get()
 val bundledPlugins = providers.gradleProperty("platformBundledPlugins").get().split(',').map(String::trim).filter(String::isNotEmpty)
 
-val localIdePathCandidates = listOf(
-    System.getenv("IDEA_LOCAL_PATH"),
-    "/Applications/IntelliJ IDEA.app/Contents",
-    "C:/Program Files/JetBrains/IntelliJ IDEA 2025.3",
-).filterNotNull()
-
-val localIdePath = localIdePathCandidates.firstOrNull { File(it).exists() }
+val localIdePath = System.getenv("IDEA_LOCAL_PATH")?.takeIf { File(it).exists() }
 
 repositories {
     mavenCentral()
@@ -73,6 +67,20 @@ intellijPlatform {
             untilBuild = providers.gradleProperty("pluginUntilBuild")
         }
     }
+}
+
+extensions.findByType(org.jetbrains.intellij.platform.gradle.extensions.IntelliJPlatformPluginsExtension::class.java)
+    ?.apply {
+        // Avoid loading the bundled Full Line plugin which fails descriptor creation in 2025.3.
+        disablePlugin("org.jetbrains.completion.full.line")
+        disablePlugin("fullLine")
+    }
+
+val fullLineYamlJar = intellijPlatform.platformPath
+    .resolve("plugins/fullLine/lib/modules/intellij.fullLine.yaml.jar")
+    .toFile()
+if (fullLineYamlJar.exists()) {
+    fullLineYamlJar.delete()
 }
 
 tasks {

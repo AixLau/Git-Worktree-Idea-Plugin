@@ -1,5 +1,7 @@
 package com.github.gitworktree.dialog
 
+import com.github.gitworktree.git.RequiredNewBranchReason
+import com.github.gitworktree.git.resolveWorktreeSource
 import com.github.gitworktree.git.suggestLocalBranchName
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -88,6 +90,47 @@ class AddWorktreeDialogBranchSuggestionTest {
                 "/Users/lushiwu/Documents/Java/agent-flow",
                 "../agent-flow-main-worktree",
             )
+        )
+    }
+
+    @Test
+    fun `resolveWorktreeSource marks missing local branch as requiring a new branch`() {
+        assertEquals(
+            RequiredNewBranchReason.MISSING_LOCAL_BRANCH,
+            resolveWorktreeSource(
+                source = "origin/main",
+                requestedNewBranch = null,
+                localBranchNames = emptySet(),
+                remoteBranchNames = setOf("origin/main"),
+            ).requiredNewBranchReason
+        )
+    }
+
+    @Test
+    fun `resolveWorktreeSource marks occupied local branch as requiring a new branch`() {
+        assertEquals(
+            RequiredNewBranchReason.LOCAL_BRANCH_OCCUPIED,
+            resolveWorktreeSource(
+                source = "origin/main",
+                requestedNewBranch = null,
+                localBranchNames = setOf("main"),
+                remoteBranchNames = setOf("origin/main"),
+                occupiedBranchNames = setOf("main"),
+            ).requiredNewBranchReason
+        )
+    }
+
+    @Test
+    fun `resolveWorktreeSource marks occupied direct local branch as requiring a new branch`() {
+        assertEquals(
+            RequiredNewBranchReason.LOCAL_BRANCH_OCCUPIED,
+            resolveWorktreeSource(
+                source = "main",
+                requestedNewBranch = null,
+                localBranchNames = setOf("main"),
+                remoteBranchNames = emptySet(),
+                occupiedBranchNames = setOf("main"),
+            ).requiredNewBranchReason
         )
     }
 }

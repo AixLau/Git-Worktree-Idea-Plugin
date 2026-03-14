@@ -20,11 +20,23 @@ data class GitWorktreeResult(
     val errorOutputAsJoinedString: String get() = errorOutput.trim()
 }
 
+internal enum class RequiredNewBranchReason {
+    MISSING_LOCAL_BRANCH,
+    LOCAL_BRANCH_OCCUPIED,
+    LOCAL_BRANCH_CANNOT_FAST_FORWARD,
+}
+
 internal data class WorktreeSourceResolution(
     val source: String,
     val newBranch: String? = null,
     val remoteSourceToFetch: String? = null,
     val localBranchToFastForward: String? = null,
+    val requiredNewBranchReason: RequiredNewBranchReason? = null,
+)
+
+internal data class RemoteBranchResolutionCheck(
+    val resolution: WorktreeSourceResolution? = null,
+    val errorMessage: String? = null,
 )
 
 internal fun resolveWorktreeSource(
@@ -43,6 +55,14 @@ internal fun resolveWorktreeSource(
         )
     }
 
+    if (source in localBranchNames && source in occupiedBranchNames) {
+        return WorktreeSourceResolution(
+            source = source,
+            newBranch = suggestLocalBranchName(source, localBranchNames),
+            requiredNewBranchReason = RequiredNewBranchReason.LOCAL_BRANCH_OCCUPIED,
+        )
+    }
+
     if (source !in remoteBranchNames) {
         return WorktreeSourceResolution(source = source)
     }
@@ -53,14 +73,25 @@ internal fun resolveWorktreeSource(
             source = source,
             newBranch = implicitLocalBranch,
             remoteSourceToFetch = source,
+            requiredNewBranchReason = RequiredNewBranchReason.MISSING_LOCAL_BRANCH,
         )
     }
 
-    if (implicitLocalBranch in occupiedBranchNames || !canFastForwardExistingLocalBranch) {
+    if (implicitLocalBranch in occupiedBranchNames) {
         return WorktreeSourceResolution(
             source = source,
             newBranch = suggestLocalBranchName(source, localBranchNames),
             remoteSourceToFetch = source,
+            requiredNewBranchReason = RequiredNewBranchReason.LOCAL_BRANCH_OCCUPIED,
+        )
+    }
+
+    if (!canFastForwardExistingLocalBranch) {
+        return WorktreeSourceResolution(
+            source = source,
+            newBranch = suggestLocalBranchName(source, localBranchNames),
+            remoteSourceToFetch = source,
+            requiredNewBranchReason = RequiredNewBranchReason.LOCAL_BRANCH_CANNOT_FAST_FORWARD,
         )
     }
 
@@ -160,40 +191,20 @@ class GitWorktreeManager {
         newBranch: String? = null,
         lock: Boolean = false,
     ): GitWorktreeResult {
-        val remoteBranchNames = repository.branches.remoteBranches.map { it.name }.toSet()
-        val initialRemoteSource = source.takeIf { it in remoteBranchNames }
-
-        if (initialRemoteSource != null) {
-            val fetchResult = fetchRemoteBranch(repository, initialRemoteSource)
-            if (!fetchResult.success()) {
-                return fetchResult
-            }
-            repository.update()
+        val resolutionCheck = inspectRemoteBranchResolution(project, repository, source, newBranch)
+        if (resolutionCheck.errorMessage != null) {
+            return GitWorktreeResult(-1, "", resolutionCheck.errorMessage)
         }
+        val resolution = resolutionCheck.resolution
+            ?: return GitWorktreeResult(-1, "", "Unable to resolve worktree source")
 
-        val refreshedLocalBranchNames = repository.branches.localBranches.map { it.name }.toSet()
-        val refreshedRemoteBranchNames = repository.branches.remoteBranches.map { it.name }.toSet()
-        val occupiedBranchNames = collectOccupiedBranchNames(listWorktrees(project, repository))
-        val implicitLocalBranch = source.substringAfter("/", source)
-        val canFastForwardExistingLocalBranch = if (
-            initialRemoteSource != null &&
-            newBranch == null &&
-            implicitLocalBranch in refreshedLocalBranchNames &&
-            implicitLocalBranch !in occupiedBranchNames
-        ) {
-            canFastForwardLocalBranch(repository, implicitLocalBranch, initialRemoteSource)
-        } else {
-            true
+        if (newBranch == null && resolution.requiredNewBranchReason != null) {
+            return GitWorktreeResult(
+                -1,
+                "",
+                buildRequiredNewBranchMessage(source, resolution)
+            )
         }
-
-        val resolution = resolveWorktreeSource(
-            source = source,
-            requestedNewBranch = newBranch,
-            localBranchNames = refreshedLocalBranchNames,
-            remoteBranchNames = refreshedRemoteBranchNames,
-            occupiedBranchNames = occupiedBranchNames,
-            canFastForwardExistingLocalBranch = canFastForwardExistingLocalBranch,
-        )
 
         resolution.localBranchToFastForward?.let { branchName ->
             val fastForwardResult = fastForwardLocalBranchToRemote(repository, branchName, source)
@@ -212,6 +223,52 @@ class GitWorktreeManager {
         params.add(path)
         params.add(resolution.source)
         return runGit(repository, *params.toTypedArray())
+    }
+
+    internal fun inspectRemoteBranchResolution(
+        project: Project,
+        repository: GitRepository,
+        source: String,
+        requestedNewBranch: String? = null,
+    ): RemoteBranchResolutionCheck {
+        val remoteBranchNames = repository.branches.remoteBranches.map { it.name }.toSet()
+        val initialRemoteSource = source.takeIf { it in remoteBranchNames }
+
+        if (initialRemoteSource != null) {
+            val fetchResult = fetchRemoteBranch(repository, initialRemoteSource)
+            if (!fetchResult.success()) {
+                return RemoteBranchResolutionCheck(errorMessage = fetchResult.errorOutputAsJoinedString.ifBlank {
+                    fetchResult.output.trim().ifBlank { "Failed to fetch remote branch: $initialRemoteSource" }
+                })
+            }
+            repository.update()
+        }
+
+        val refreshedLocalBranchNames = repository.branches.localBranches.map { it.name }.toSet()
+        val refreshedRemoteBranchNames = repository.branches.remoteBranches.map { it.name }.toSet()
+        val occupiedBranchNames = collectOccupiedBranchNames(listWorktrees(project, repository))
+        val implicitLocalBranch = source.substringAfter("/", source)
+        val canFastForwardExistingLocalBranch = if (
+            initialRemoteSource != null &&
+            requestedNewBranch == null &&
+            implicitLocalBranch in refreshedLocalBranchNames &&
+            implicitLocalBranch !in occupiedBranchNames
+        ) {
+            canFastForwardLocalBranch(repository, implicitLocalBranch, initialRemoteSource)
+        } else {
+            true
+        }
+
+        return RemoteBranchResolutionCheck(
+            resolution = resolveWorktreeSource(
+                source = source,
+                requestedNewBranch = requestedNewBranch,
+                localBranchNames = refreshedLocalBranchNames,
+                remoteBranchNames = refreshedRemoteBranchNames,
+                occupiedBranchNames = occupiedBranchNames,
+                canFastForwardExistingLocalBranch = canFastForwardExistingLocalBranch,
+            )
+        )
     }
 
     fun removeWorktree(
@@ -259,6 +316,21 @@ class GitWorktreeManager {
 
     private fun fastForwardLocalBranchToRemote(repository: GitRepository, localBranchName: String, source: String): GitWorktreeResult {
         return runGit(repository, "branch", "-f", localBranchName, remoteTrackingRef(source))
+    }
+
+    private fun buildRequiredNewBranchMessage(source: String, resolution: WorktreeSourceResolution): String {
+        val localBranchName = source.substringAfter("/", source)
+        val suggestedBranchName = resolution.newBranch ?: localBranchName
+        return when (resolution.requiredNewBranchReason) {
+            RequiredNewBranchReason.MISSING_LOCAL_BRANCH ->
+                "Remote branch $source requires a new local branch. Suggested branch: $suggestedBranchName"
+            RequiredNewBranchReason.LOCAL_BRANCH_OCCUPIED ->
+                "Local branch $localBranchName is already used by another worktree. Suggested branch: $suggestedBranchName"
+            RequiredNewBranchReason.LOCAL_BRANCH_CANNOT_FAST_FORWARD ->
+                "Local branch $localBranchName cannot be fast-forwarded to $source safely. Suggested branch: $suggestedBranchName"
+            null ->
+                "Worktree creation requires a new branch. Suggested branch: $suggestedBranchName"
+        }
     }
 
     private fun runGit(repository: GitRepository, vararg args: String): GitWorktreeResult {
