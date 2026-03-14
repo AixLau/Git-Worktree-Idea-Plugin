@@ -13,7 +13,17 @@ version = providers.gradleProperty("pluginVersion").get()
 
 val javaVersion = providers.gradleProperty("javaVersion").get().toInt()
 val platformVersion = providers.gradleProperty("platformVersion").get()
-val bundledPlugins = providers.gradleProperty("platformBundledPlugins").get().split(',').map(String::trim).filter(String::isNotEmpty)
+val bundledPlugins = providers.gradleProperty("platformBundledPlugins").get()
+    .split(',')
+    .map(String::trim)
+    .filter(String::isNotEmpty)
+    .toMutableList()
+    .apply {
+        // Full Line's YAML module depends on the bundled YAML plugin in 2025.3.
+        if ("org.jetbrains.plugins.yaml" !in this) {
+            add("org.jetbrains.plugins.yaml")
+        }
+    }
 
 val localIdePath = System.getenv("IDEA_LOCAL_PATH")?.takeIf { File(it).exists() }
 
@@ -75,13 +85,6 @@ extensions.findByType(org.jetbrains.intellij.platform.gradle.extensions.IntelliJ
         disablePlugin("org.jetbrains.completion.full.line")
         disablePlugin("fullLine")
     }
-
-val fullLineYamlJar = intellijPlatform.platformPath
-    .resolve("plugins/fullLine/lib/modules/intellij.fullLine.yaml.jar")
-    .toFile()
-if (fullLineYamlJar.exists()) {
-    fullLineYamlJar.delete()
-}
 
 tasks {
     test {

@@ -3,8 +3,13 @@ package com.github.gitworktree.dialog
 import com.github.gitworktree.git.RequiredNewBranchReason
 import com.github.gitworktree.git.resolveWorktreeSource
 import com.github.gitworktree.git.suggestLocalBranchName
+import javax.swing.JButton
+import javax.swing.JPanel
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class AddWorktreeDialogBranchSuggestionTest {
 
@@ -132,5 +137,70 @@ class AddWorktreeDialogBranchSuggestionTest {
                 occupiedBranchNames = setOf("main"),
             ).requiredNewBranchReason
         )
+    }
+
+    @Test
+    fun `resolveWorktreeSource immediately marks occupied remote-backed branch as requiring a new branch`() {
+        val resolution = resolveWorktreeSource(
+            source = "origin/main",
+            requestedNewBranch = null,
+            localBranchNames = setOf("main"),
+            remoteBranchNames = setOf("origin/main"),
+            occupiedBranchNames = setOf("main"),
+            canFastForwardExistingLocalBranch = true,
+        )
+
+        assertEquals(RequiredNewBranchReason.LOCAL_BRANCH_OCCUPIED, resolution.requiredNewBranchReason)
+        assertEquals("main-worktree", resolution.newBranch)
+    }
+
+    @Test
+    fun `required new branch hint keeps ok enabled`() {
+        val info = createNonBlockingValidationInfo("branch occupied", JPanel())
+
+        assertTrue(info.okEnabled)
+        assertTrue(info.warning)
+    }
+
+    @Test
+    fun `required new branch hint stays hidden after auto selection`() {
+        val panel = JPanel()
+        val checkBox = JButton("checkbox")
+
+        val hintComponent = resolveRequiredNewBranchHintComponent(
+            createNewBranch = true,
+            showAutoSelectedHint = true,
+            newBranchPanel = panel,
+            createNewBranchCheckBox = checkBox,
+        )
+
+        assertNull(hintComponent)
+    }
+
+    @Test
+    fun `required new branch hint stays on panel before auto selection`() {
+        val panel = JPanel()
+        val checkBox = JButton("checkbox")
+
+        val hintComponent = resolveRequiredNewBranchHintComponent(
+            createNewBranch = false,
+            showAutoSelectedHint = false,
+            newBranchPanel = panel,
+            createNewBranchCheckBox = checkBox,
+        )
+
+        assertSame(panel, hintComponent)
+    }
+
+    @Test
+    fun `required new branch hint stays hidden for manual branch creation`() {
+        val hintComponent = resolveRequiredNewBranchHintComponent(
+            createNewBranch = true,
+            showAutoSelectedHint = false,
+            newBranchPanel = JPanel(),
+            createNewBranchCheckBox = JButton("checkbox"),
+        )
+
+        assertNull(hintComponent)
     }
 }

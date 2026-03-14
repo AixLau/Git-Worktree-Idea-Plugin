@@ -225,6 +225,28 @@ class GitWorktreeManager {
         return runGit(repository, *params.toTypedArray())
     }
 
+    internal fun previewBranchResolution(
+        project: Project,
+        repository: GitRepository,
+        source: String,
+        requestedNewBranch: String? = null,
+    ): RemoteBranchResolutionCheck {
+        val localBranchNames = repository.branches.localBranches.map { it.name }.toSet()
+        val remoteBranchNames = repository.branches.remoteBranches.map { it.name }.toSet()
+        val occupiedBranchNames = collectOccupiedBranchNames(listWorktrees(project, repository))
+
+        return RemoteBranchResolutionCheck(
+            resolution = resolveWorktreeSource(
+                source = source,
+                requestedNewBranch = requestedNewBranch,
+                localBranchNames = localBranchNames,
+                remoteBranchNames = remoteBranchNames,
+                occupiedBranchNames = occupiedBranchNames,
+                canFastForwardExistingLocalBranch = true,
+            )
+        )
+    }
+
     internal fun inspectRemoteBranchResolution(
         project: Project,
         repository: GitRepository,
