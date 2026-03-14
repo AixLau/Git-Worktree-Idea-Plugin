@@ -2,6 +2,11 @@
 
 `Git Worktree` 是一个 IntelliJ IDEA 插件，用来在 IDE 内直接管理 Git worktree。
 
+下载最新版本：
+
+- [git-worktree-intellij-1.0.3.zip](https://github.com/AixLau/Git-Worktree/releases/download/v1.0.3/git-worktree-intellij-1.0.3.zip)
+- [Release 页面](https://github.com/AixLau/Git-Worktree/releases/tag/v1.0.3)
+
 ## 功能概览
 
 - 在当前仓库中创建 worktree
@@ -31,7 +36,7 @@
 
 当前本地产物：
 
-- `build/distributions/git-worktree-intellij-1.0.1.zip`
+- [build/distributions/git-worktree-intellij-1.0.3.zip](build/distributions/git-worktree-intellij-1.0.3.zip)
 
 ## 入口位置
 
@@ -67,9 +72,13 @@
 工具窗口会按仓库列出 worktree。你可以在这里：
 
 - 刷新列表
-- 删除 worktree
+- 通过右键菜单删除 worktree
 - 锁定或解锁 worktree
 - 双击某个 worktree 直接作为项目打开
+
+说明：
+
+- 为降低误操作风险，工具栏里默认不再提供删除按钮。
 
 ### 跨 worktree 文件对比
 
@@ -109,6 +118,13 @@ git worktree add <path> origin/main
 ```
 
 导致的 detached HEAD。
+
+## 1.0.3 更新
+
+- 修复 Worktree 面板首次打开时列表不刷新的问题。
+- 修复创建 Worktree 后面板列表不自动更新的问题。
+- 移除面板工具栏中的删除按钮，降低误操作风险。
+- 修复 2025.3 平台下 `fullLine` 模块带来的构建告警。
 
 ## 设置项
 
